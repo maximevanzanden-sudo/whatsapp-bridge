@@ -1,9 +1,13 @@
-FROM node:20-alpine
+FROM node:20
+
 WORKDIR /app
-COPY package.json ./
-RUN npm install --omit=dev
-COPY server.js ./
-ENV NODE_ENV=production
+
+COPY package*.json ./
+
+RUN npm install
+
+COPY . .
+
 EXPOSE 3000
-VOLUME ["/app/auth_info"]
+
 CMD ["node", "server.js"]
