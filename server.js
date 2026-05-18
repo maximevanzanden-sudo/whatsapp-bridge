@@ -20,12 +20,16 @@ async function startSock() {
     await useMultiFileAuthState("auth_info");
 
   const sock = makeWASocket({
-    auth: state
+    auth: state,
+    printQRInTerminal: false,
+    browser: ["Railway", "Chrome", "1.0.0"]
   });
 
   sock.ev.on("creds.update", saveCreds);
 
   sock.ev.on("connection.update", async (update) => {
+    console.log(update);
+
     const { connection, qr } = update;
 
     if (qr) {
@@ -42,8 +46,11 @@ async function startSock() {
 
     if (connection === "close") {
       connectionState = "closed";
-      console.log("CLOSED");
-      startSock();
+      console.log("CONNECTION CLOSED");
+
+      setTimeout(() => {
+        startSock();
+      }, 5000);
     }
   });
 }
