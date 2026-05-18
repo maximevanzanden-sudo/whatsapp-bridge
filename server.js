@@ -29,7 +29,7 @@ async function startSock() {
   });
 
   // TELEFOONNUMMER INVULLEN
-  const phoneNumber = "31612345678";
+ const phoneNumber = "31684596226";
 
   pairingCode = await sock.requestPairingCode(phoneNumber);
 
