@@ -1,5 +1,4 @@
 const express = require("express");
-const QRCode = require("qrcode");
 
 const {
   default: makeWASocket,
@@ -8,16 +7,15 @@ const {
 
 const app = express();
 
-let latestQr = null;
+let pairingCode = null;
 
 async function startSock() {
-  // NIEUWE SESSION NAAM
   const { state, saveCreds } =
-    await useMultiFileAuthState("brand_new_session");
+    await useMultiFileAuthState("auth_info");
 
   const sock = makeWASocket({
     auth: state,
-    printQRInTerminal: true
+    printQRInTerminal: false
   });
 
   sock.ev.on("creds.update", saveCreds);
@@ -25,39 +23,29 @@ async function startSock() {
   sock.ev.on("connection.update", async (update) => {
     console.log(update);
 
-    if (update.qr) {
-      latestQr = update.qr;
-      console.log("QR RECEIVED");
-    }
-
     if (update.connection === "open") {
       console.log("CONNECTED");
     }
   });
+
+  // TELEFOONNUMMER INVULLEN
+  const phoneNumber = "31612345678";
+
+  pairingCode = await sock.requestPairingCode(phoneNumber);
+
+  console.log("PAIRING CODE:", pairingCode);
 }
 
 app.get("/", (req, res) => {
   res.send("online");
 });
 
-app.get("/status", (req, res) => {
-  res.json({
-    hasQr: !!latestQr
-  });
-});
-
-app.get("/qr", async (req, res) => {
-  if (!latestQr) {
-    return res.send("No QR available yet");
-  }
-
-  const img = await QRCode.toDataURL(latestQr);
-
+app.get("/pair", (req, res) => {
   res.send(`
     <html>
-      <body style="text-align:center;padding:40px">
-        <h1>Scan QR</h1>
-        <img src="${img}" />
+      <body style="font-family:sans-serif;padding:40px">
+        <h1>WhatsApp Pairing Code</h1>
+        <h2>${pairingCode || "Loading..."}</h2>
       </body>
     </html>
   `);
