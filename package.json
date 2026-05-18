@@ -1,16 +1,15 @@
 {
-  "name": "rovio-whatsapp-bridge",
+  "name": "whatsapp-bridge",
   "version": "1.0.0",
+  "description": "WhatsApp QR bridge",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.7.7",
+    "@whiskeysockets/baileys": "6.6.0",
     "cors": "^2.8.5",
-    "express": "^4.19.2",
-    "node-fetch": "^2.7.0",
-    "qrcode": "^1.5.3",
-    "pino": "^9.3.2"
+    "express": "^4.18.2",
+    "qrcode": "^1.5.3"
   }
 }
