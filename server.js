@@ -19,8 +19,12 @@ let connected = false;
 
 async function startSock() {
 
+  // NIEUWE SESSION ELKE KEER VIA ENV
+  const SESSION_NAME =
+    process.env.SESSION_NAME || "auth_info";
+
   const { state, saveCreds } =
-    await useMultiFileAuthState("./auth_info");
+    await useMultiFileAuthState("./" + SESSION_NAME);
 
   sock = makeWASocket({
     auth: state,
@@ -32,21 +36,25 @@ async function startSock() {
 
   sock.ev.on("connection.update", async (update) => {
 
+    console.log("UPDATE:", update);
+
     const {
       connection,
       qr,
       lastDisconnect
     } = update;
 
-    console.log("CONNECTION UPDATE:", update);
-
+    // NIEUWE QR
     if (qr) {
 
       console.log("QR RECEIVED");
 
       latestQr = await QRCode.toDataURL(qr);
+
+      console.log("QR SAVED");
     }
 
+    // CONNECTED
     if (connection === "open") {
 
       console.log("WHATSAPP CONNECTED");
@@ -55,15 +63,16 @@ async function startSock() {
       latestQr = null;
     }
 
+    // CLOSED
     if (connection === "close") {
+
+      console.log("CONNECTION CLOSED");
 
       connected = false;
 
       const shouldReconnect =
         lastDisconnect?.error?.output?.statusCode !==
         DisconnectReason.loggedOut;
-
-      console.log("CONNECTION CLOSED");
 
       if (shouldReconnect) {
 
@@ -80,7 +89,8 @@ async function startSock() {
 startSock();
 
 app.get("/", (req, res) => {
-  res.send("Bridge running");
+
+  res.send("WhatsApp bridge online");
 });
 
 app.get("/status", (req, res) => {
@@ -94,7 +104,30 @@ app.get("/status", (req, res) => {
 app.get("/qr", (req, res) => {
 
   if (!latestQr) {
-    return res.send("No QR available");
+
+    return res.send(`
+      <html>
+        <body style="
+          background:#111;
+          color:white;
+          display:flex;
+          justify-content:center;
+          align-items:center;
+          height:100vh;
+          font-family:sans-serif;
+        ">
+          <div>
+            <h2>QR wordt geladen...</h2>
+
+            <script>
+              setTimeout(() => {
+                location.reload();
+              }, 3000);
+            </script>
+          </div>
+        </body>
+      </html>
+    `);
   }
 
   res.send(`
@@ -110,6 +143,7 @@ app.get("/qr", (req, res) => {
         font-family:sans-serif;
       ">
         <h1>Scan met WhatsApp Business</h1>
+
         <img src="${latestQr}" width="350" />
       </body>
     </html>
@@ -119,6 +153,8 @@ app.get("/qr", (req, res) => {
 app.post("/send", async (req, res) => {
 
   try {
+
+    console.log("BODY:", req.body);
 
     const to =
       req.body.to ||
@@ -154,6 +190,8 @@ app.post("/send", async (req, res) => {
     await sock.sendMessage(jid, {
       text: message
     });
+
+    console.log("MESSAGE SENT");
 
     res.json({
       success: true
