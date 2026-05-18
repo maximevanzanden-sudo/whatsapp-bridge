@@ -4,8 +4,7 @@ const QRCode = require("qrcode");
 
 const {
   default: makeWASocket,
-  useMultiFileAuthState,
-  DisconnectReason
+  useMultiFileAuthState
 } = require("@whiskeysockets/baileys");
 
 const app = express();
@@ -18,7 +17,9 @@ let latestQr = null;
 let connected = false;
 
 async function startSock() {
-  const { state, saveCreds } = await useMultiFileAuthState("auth_info");
+
+  const { state, saveCreds } =
+    await useMultiFileAuthState("auth_info");
 
   sock = makeWASocket({
     auth: state,
@@ -27,24 +28,34 @@ async function startSock() {
 
   sock.ev.on("creds.update", saveCreds);
 
-  sock.ev.on("connection.update", async ({ connection, qr }) => {
+  sock.ev.on("connection.update", async (update) => {
+
+    const { connection, qr } = update;
 
     if (qr) {
+
       latestQr = await QRCode.toDataURL(qr);
+
       console.log("QR updated");
     }
 
     if (connection === "open") {
+
       connected = true;
       latestQr = null;
+
       console.log("WhatsApp connected");
     }
 
     if (connection === "close") {
+
       connected = false;
+
       console.log("Connection closed");
 
-      startSock();
+      setTimeout(() => {
+        startSock();
+      }, 5000);
     }
   });
 }
@@ -52,10 +63,12 @@ async function startSock() {
 startSock();
 
 app.get("/", (req, res) => {
+
   res.send("Bridge running");
 });
 
 app.get("/status", (req, res) => {
+
   res.json({
     connected,
     qr: latestQr ? true : false
@@ -91,28 +104,44 @@ app.post("/send", async (req, res) => {
 
   try {
 
+    console.log("Incoming body:", req.body);
+
+    const to =
+      req.body.to ||
+      req.body.phone ||
+      req.body.number;
+
+    const message =
+      req.body.message ||
+      req.body.text ||
+      req.body.body;
+
+    if (!to || !message) {
+
+      return res.status(400).json({
+        error: "Missing to/message",
+        received: req.body
+      });
+    }
+
     if (!connected) {
+
       return res.status(500).json({
         error: "WhatsApp not connected"
       });
     }
 
-    let { to, message } = req.body;
+    const cleanNumber = to
+      .replace(/\+/g, "")
+      .replace(/\s/g, "");
 
-    if (!to || !message) {
-      return res.status(400).json({
-        error: "Missing to/message"
-      });
-    }
-
-    to = to.replace(/\+/g, "");
-    to = to.replace(/\s/g, "");
-
-    const jid = `${to}@s.whatsapp.net`;
+    const jid = `${cleanNumber}@s.whatsapp.net`;
 
     await sock.sendMessage(jid, {
       text: message
     });
+
+    console.log("Message sent to:", jid);
 
     res.json({
       success: true
@@ -131,5 +160,6 @@ app.post("/send", async (req, res) => {
 const PORT = process.env.PORT || 8080;
 
 app.listen(PORT, () => {
+
   console.log("HTTP listening on", PORT);
 });
