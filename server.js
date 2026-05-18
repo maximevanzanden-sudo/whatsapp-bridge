@@ -1,58 +1,90 @@
 const express = require("express");
+const cors = require("cors");
+const QRCode = require("qrcode");
 
 const {
   default: makeWASocket,
-  useMultiFileAuthState
+  useMultiFileAuthState,
+  DisconnectReason
 } = require("@whiskeysockets/baileys");
 
 const app = express();
 
-let pairingCode = null;
+app.use(cors());
+app.use(express.json());
+
+let latestQr = null;
+let connectionState = "starting";
 
 async function startSock() {
-  const { state, saveCreds } =
-    await useMultiFileAuthState("auth_info");
+  const { state, saveCreds } = await useMultiFileAuthState("auth_info");
 
   const sock = makeWASocket({
     auth: state,
-    printQRInTerminal: false
+    printQRInTerminal: false,
+    browser: ["Ubuntu", "Chrome", "20.0.0"]
   });
 
   sock.ev.on("creds.update", saveCreds);
 
   sock.ev.on("connection.update", async (update) => {
-    console.log(update);
+    const { connection, qr, lastDisconnect } = update;
 
-    if (update.connection === "open") {
-      console.log("CONNECTED");
+    if (qr) {
+      console.log("NEW QR RECEIVED");
+
+      latestQr = await QRCode.toDataURL(qr);
+      connectionState = "qr";
+    }
+
+    if (connection === "open") {
+      console.log("WHATSAPP CONNECTED");
+      connectionState = "connected";
+    }
+
+    if (connection === "close") {
+      const shouldReconnect =
+        lastDisconnect?.error?.output?.statusCode !==
+        DisconnectReason.loggedOut;
+
+      console.log("Connection closed");
+
+      if (shouldReconnect) {
+        startSock();
+      }
     }
   });
-
-  // TELEFOONNUMMER INVULLEN
- const phoneNumber = "31684596226";
-
-  pairingCode = await sock.requestPairingCode(phoneNumber);
-
-  console.log("PAIRING CODE:", pairingCode);
 }
 
 app.get("/", (req, res) => {
-  res.send("online");
+  res.send("Bridge online");
 });
 
-app.get("/pair", (req, res) => {
+app.get("/status", (req, res) => {
+  res.json({
+    state: connectionState,
+    hasQr: !!latestQr
+  });
+});
+
+app.get("/qr", (req, res) => {
+  if (!latestQr) {
+    return res.send("No QR available");
+  }
+
   res.send(`
     <html>
-      <body style="font-family:sans-serif;padding:40px">
-        <h1>WhatsApp Pairing Code</h1>
-        <h2>${pairingCode || "Loading..."}</h2>
+      <body style="display:flex;justify-content:center;align-items:center;height:100vh;background:#111;">
+        <img src="${latestQr}" width="350" />
       </body>
     </html>
   `);
 });
 
-app.listen(process.env.PORT || 8080, () => {
-  console.log("SERVER STARTED");
+const PORT = process.env.PORT || 8080;
+
+app.listen(PORT, () => {
+  console.log("[bridge] HTTP listening on :" + PORT);
 });
 
 startSock();
