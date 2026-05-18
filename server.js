@@ -18,48 +18,64 @@ let isConnected = false;
 let sock = null;
 
 async function startSock() {
-  const sessionName = process.env.SESSION_NAME || "default";
+  try {
+    console.log("Starting WhatsApp socket...");
 
-  const { state, saveCreds } = await useMultiFileAuthState(
-    `./auth_info_${sessionName}`
-  );
+    const sessionName = process.env.SESSION_NAME || "default";
 
-  sock = makeWASocket({
-    auth: state,
-    printQRInTerminal: false
-  });
+    const { state, saveCreds } = await useMultiFileAuthState(
+      `./auth_info_${sessionName}`
+    );
 
-  sock.ev.on("creds.update", saveCreds);
+    sock = makeWASocket({
+      auth: state,
+      printQRInTerminal: false,
+      browser: ["Baileys", "Chrome", "4.0.0"]
+    });
 
-  sock.ev.on("connection.update", async (update) => {
-    const { connection, qr, lastDisconnect } = update;
+    sock.ev.on("creds.update", saveCreds);
 
-    if (qr) {
-      console.log("QR updated");
-      latestQr = await QRCode.toDataURL(qr);
-      isConnected = false;
-    }
+    sock.ev.on("connection.update", async (update) => {
+      console.log("connection.update", update);
 
-    if (connection === "open") {
-      console.log("WhatsApp connected");
-      isConnected = true;
-      latestQr = null;
-    }
+      const { connection, qr, lastDisconnect } = update;
 
-    if (connection === "close") {
-      console.log("Connection closed");
+      if (qr) {
+        console.log("QR RECEIVED");
 
-      isConnected = false;
+        latestQr = await QRCode.toDataURL(qr);
 
-      const shouldReconnect =
-        lastDisconnect?.error?.output?.statusCode !==
-        DisconnectReason.loggedOut;
-
-      if (shouldReconnect) {
-        startSock();
+        isConnected = false;
       }
-    }
-  });
+
+      if (connection === "open") {
+        console.log("WHATSAPP CONNECTED");
+
+        isConnected = true;
+
+        latestQr = null;
+      }
+
+      if (connection === "close") {
+        console.log("CONNECTION CLOSED");
+
+        isConnected = false;
+
+        const shouldReconnect =
+          lastDisconnect?.error?.output?.statusCode !==
+          DisconnectReason.loggedOut;
+
+        console.log("Reconnect:", shouldReconnect);
+
+        if (shouldReconnect) {
+          startSock();
+        }
+      }
+    });
+  } catch (err) {
+    console.error("STARTSOCK ERROR:");
+    console.error(err);
+  }
 }
 
 startSock();
@@ -94,6 +110,8 @@ app.post("/send", async (req, res) => {
   try {
     const { to, message } = req.body;
 
+    console.log("SEND BODY:", req.body);
+
     if (!to || !message) {
       return res.status(400).json({
         error: "Missing to/message"
@@ -116,6 +134,7 @@ app.post("/send", async (req, res) => {
       success: true
     });
   } catch (err) {
+    console.error("SEND ERROR:");
     console.error(err);
 
     res.status(500).json({
