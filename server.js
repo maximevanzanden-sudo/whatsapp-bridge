@@ -4,7 +4,8 @@ const QRCode = require("qrcode");
 
 const {
   default: makeWASocket,
-  useMultiFileAuthState
+  useMultiFileAuthState,
+  DisconnectReason
 } = require("@whiskeysockets/baileys");
 
 const app = express();
@@ -19,10 +20,11 @@ let connected = false;
 async function startSock() {
 
   const { state, saveCreds } =
-    await useMultiFileAuthState("auth_info");
+    await useMultiFileAuthState("./auth_info");
 
   sock = makeWASocket({
     auth: state,
+    browser: ["Railway", "Chrome", "1.0.0"],
     printQRInTerminal: false
   });
 
@@ -30,32 +32,47 @@ async function startSock() {
 
   sock.ev.on("connection.update", async (update) => {
 
-    const { connection, qr } = update;
+    const {
+      connection,
+      qr,
+      lastDisconnect
+    } = update;
+
+    console.log("CONNECTION UPDATE:", update);
 
     if (qr) {
 
-      latestQr = await QRCode.toDataURL(qr);
+      console.log("QR RECEIVED");
 
-      console.log("QR updated");
+      latestQr = await QRCode.toDataURL(qr);
     }
 
     if (connection === "open") {
 
+      console.log("WHATSAPP CONNECTED");
+
       connected = true;
       latestQr = null;
-
-      console.log("WhatsApp connected");
     }
 
     if (connection === "close") {
 
       connected = false;
 
-      console.log("Connection closed");
+      const shouldReconnect =
+        lastDisconnect?.error?.output?.statusCode !==
+        DisconnectReason.loggedOut;
 
-      setTimeout(() => {
-        startSock();
-      }, 5000);
+      console.log("CONNECTION CLOSED");
+
+      if (shouldReconnect) {
+
+        console.log("RECONNECTING...");
+
+        setTimeout(() => {
+          startSock();
+        }, 3000);
+      }
     }
   });
 }
@@ -63,7 +80,6 @@ async function startSock() {
 startSock();
 
 app.get("/", (req, res) => {
-
   res.send("Bridge running");
 });
 
@@ -71,7 +87,7 @@ app.get("/status", (req, res) => {
 
   res.json({
     connected,
-    qr: latestQr ? true : false
+    qr: !!latestQr
   });
 });
 
@@ -84,8 +100,8 @@ app.get("/qr", (req, res) => {
   res.send(`
     <html>
       <body style="
-        background:black;
-        color:white;
+        background:#000;
+        color:#fff;
         display:flex;
         justify-content:center;
         align-items:center;
@@ -103,8 +119,6 @@ app.get("/qr", (req, res) => {
 app.post("/send", async (req, res) => {
 
   try {
-
-    console.log("Incoming body:", req.body);
 
     const to =
       req.body.to ||
@@ -131,17 +145,15 @@ app.post("/send", async (req, res) => {
       });
     }
 
-    const cleanNumber = to
+    const clean = to
       .replace(/\+/g, "")
       .replace(/\s/g, "");
 
-    const jid = `${cleanNumber}@s.whatsapp.net`;
+    const jid = `${clean}@s.whatsapp.net`;
 
     await sock.sendMessage(jid, {
       text: message
     });
-
-    console.log("Message sent to:", jid);
 
     res.json({
       success: true
