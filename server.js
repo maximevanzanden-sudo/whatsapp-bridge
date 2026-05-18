@@ -13,99 +13,119 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+let sock;
 let latestQr = null;
-let connectionState = "starting";
+let connected = false;
 
 async function startSock() {
-  const { state, saveCreds } = await useMultiFileAuthState("./auth_info");
+  const { state, saveCreds } = await useMultiFileAuthState("auth_info");
 
-  const sock = makeWASocket({
+  sock = makeWASocket({
     auth: state,
-    printQRInTerminal: true,
-    browser: ["Ubuntu", "Chrome", "20.0.04"]
+    printQRInTerminal: false
   });
 
   sock.ev.on("creds.update", saveCreds);
 
-  sock.ev.on("connection.update", async (update) => {
-    const { connection, qr, lastDisconnect } = update;
-
-    console.log("UPDATE:", connection);
+  sock.ev.on("connection.update", async ({ connection, qr }) => {
 
     if (qr) {
-      console.log("QR RECEIVED");
-
       latestQr = await QRCode.toDataURL(qr);
-
-      console.log("QR SAVED");
-
-      connectionState = "qr";
+      console.log("QR updated");
     }
 
     if (connection === "open") {
-      console.log("CONNECTED");
-
-      connectionState = "connected";
+      connected = true;
+      latestQr = null;
+      console.log("WhatsApp connected");
     }
 
     if (connection === "close") {
-      console.log("CONNECTION CLOSED");
+      connected = false;
+      console.log("Connection closed");
 
-      connectionState = "closed";
-
-      const shouldReconnect =
-        lastDisconnect?.error?.output?.statusCode !==
-        DisconnectReason.loggedOut;
-
-      if (shouldReconnect) {
-        console.log("RECONNECTING...");
-        startSock();
-      }
+      startSock();
     }
   });
 }
 
+startSock();
+
 app.get("/", (req, res) => {
-  res.send("WhatsApp bridge online");
+  res.send("Bridge running");
 });
 
 app.get("/status", (req, res) => {
   res.json({
-    state: connectionState,
-    hasQr: !!latestQr
+    connected,
+    qr: latestQr ? true : false
   });
 });
 
 app.get("/qr", (req, res) => {
 
   if (!latestQr) {
-    return res.send(`
-      <html>
-        <body style="background:#111;color:white;font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;">
-          <div>
-            <h2>QR wordt geladen...</h2>
-            <script>
-              setTimeout(() => location.reload(), 3000);
-            </script>
-          </div>
-        </body>
-      </html>
-    `);
+    return res.send("No QR available");
   }
 
   res.send(`
     <html>
-      <body style="background:#111;display:flex;justify-content:center;align-items:center;height:100vh;">
-        <div style="text-align:center;">
-          <h2 style="color:white;font-family:sans-serif;">
-            Scan met WhatsApp Business
-          </h2>
-
-          <img src="${latestQr}" width="350" />
-        </div>
+      <body style="
+        background:black;
+        color:white;
+        display:flex;
+        justify-content:center;
+        align-items:center;
+        height:100vh;
+        flex-direction:column;
+        font-family:sans-serif;
+      ">
+        <h1>Scan met WhatsApp Business</h1>
+        <img src="${latestQr}" width="350" />
       </body>
     </html>
   `);
+});
+
+app.post("/send", async (req, res) => {
+
+  try {
+
+    if (!connected) {
+      return res.status(500).json({
+        error: "WhatsApp not connected"
+      });
+    }
+
+    let { to, message } = req.body;
+
+    if (!to || !message) {
+      return res.status(400).json({
+        error: "Missing to/message"
+      });
+    }
+
+    to = to.replace(/\+/g, "");
+    to = to.replace(/\s/g, "");
+
+    const jid = `${to}@s.whatsapp.net`;
+
+    await sock.sendMessage(jid, {
+      text: message
+    });
+
+    res.json({
+      success: true
+    });
+
+  } catch (err) {
+
+    console.error(err);
+
+    res.status(500).json({
+      error: err.message
+    });
+  }
 });
 
 const PORT = process.env.PORT || 8080;
@@ -113,5 +133,3 @@ const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log("HTTP listening on", PORT);
 });
-
-startSock();
