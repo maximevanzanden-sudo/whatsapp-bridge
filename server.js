@@ -4,8 +4,7 @@ const QRCode = require("qrcode");
 
 const {
   default: makeWASocket,
-  useMultiFileAuthState,
-  DisconnectReason
+  useMultiFileAuthState
 } = require("@whiskeysockets/baileys");
 
 const app = express();
@@ -13,64 +12,65 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-let qr = null;
-let sock = null;
+let latestQr = null;
 let connectionState = "starting";
 
-async function startWhatsApp() {
-  const { state, saveCreds } = await useMultiFileAuthState("auth_info");
+async function startSock() {
+  const { state, saveCreds } =
+    await useMultiFileAuthState("auth_info");
 
-  sock = makeWASocket({
+  const sock = makeWASocket({
     auth: state
   });
 
   sock.ev.on("creds.update", saveCreds);
 
   sock.ev.on("connection.update", async (update) => {
-    const { connection, qr: newQr } = update;
+    const { connection, qr } = update;
 
-    if (newQr) {
-      qr = newQr;
-      console.log("QR RECEIVED");
+    if (qr) {
+      latestQr = qr;
+      connectionState = "qr";
+      console.log("QR READY");
     }
 
     if (connection === "open") {
       connectionState = "open";
-      qr = null;
-      console.log("WHATSAPP CONNECTED");
+      latestQr = null;
+      console.log("CONNECTED");
     }
 
     if (connection === "close") {
       connectionState = "closed";
-      console.log("CONNECTION CLOSED");
-      startWhatsApp();
+      console.log("CLOSED");
+      startSock();
     }
   });
 }
 
 app.get("/", (req, res) => {
-  res.send("Bridge online");
+  res.send("bridge online");
 });
 
 app.get("/status", (req, res) => {
   res.json({
     state: connectionState,
-    hasQr: !!qr
+    hasQr: !!latestQr
   });
 });
 
 app.get("/qr", async (req, res) => {
-  if (!qr) {
-    return res.send("No QR available yet");
+  if (!latestQr) {
+    return res.send("No QR available");
   }
 
-  const image = await QRCode.toDataURL(qr);
+  const qrImage = await QRCode.toDataURL(latestQr);
 
   res.send(`
     <html>
-      <body style="font-family:sans-serif;text-align:center;padding:40px">
-        <h1>Scan WhatsApp QR</h1>
-        <img src="${image}" />
+      <body style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;flex-direction:column">
+        <h1>WhatsApp QR</h1>
+        <img src="${qrImage}" />
       </body>
     </html>
   `);
@@ -79,7 +79,7 @@ app.get("/qr", async (req, res) => {
 const PORT = process.env.PORT || 8080;
 
 app.listen(PORT, () => {
-  console.log("HTTP listening on", PORT);
+  console.log("[bridge] HTTP listening on :" + PORT);
 });
 
-startWhatsApp();
+startSock();
